@@ -1,0 +1,33 @@
+{
+  "name": "wifi-sensing-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "^16.2.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@react-three/fiber": "^9.1.2",
+    "@react-three/drei": "^10.1.2",
+    "three": "^0.176.0",
+    "chart.js": "^4.4.9",
+    "react-chartjs-2": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "^0.176.0",
+    "typescript": "^5",
+    "tailwindcss": "^3.4.17",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.3",
+    "eslint": "^9",
+    "eslint-config-next": "^16.2.4"
+  }
+}
