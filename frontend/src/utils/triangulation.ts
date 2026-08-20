@@ -1,4 +1,5 @@
 import type { ESP32Node, Position } from '@/types/csi'
+import { ROOM_MARGIN, ROOM_SIZE } from './obstacles'
 
 /**
  * Estimate 2D position from RSSI values of 3 nodes using weighted centroid.
@@ -49,4 +50,32 @@ export function roomToCanvas(
     cx: padding + roomX * scale,
     cy: padding + roomY * scale,
   }
+}
+
+/**
+ * Convert room-local coordinates (0–5m, same frame as NODES/OBSTACLES) to
+ * canvas pixels, but scaled against the room *plus its margin* — so a
+ * point just outside the walls still lands on the visible canvas. Use
+ * this (instead of roomToCanvas) whenever the margin band is drawn.
+ */
+export function simToCanvas(
+  roomX: number,
+  roomY: number,
+  canvasSize: number,
+  margin = ROOM_MARGIN,
+  roomSize = ROOM_SIZE
+): { cx: number; cy: number } {
+  const simSize = roomSize + margin * 2
+  const padding = canvasSize * 0.06
+  const scale = (canvasSize - padding * 2) / simSize
+  return {
+    cx: padding + (roomX + margin) * scale,
+    cy: padding + (roomY + margin) * scale,
+  }
+}
+
+export function simScale(canvasSize: number, margin = ROOM_MARGIN, roomSize = ROOM_SIZE): number {
+  const simSize = roomSize + margin * 2
+  const padding = canvasSize * 0.06
+  return (canvasSize - padding * 2) / simSize
 }

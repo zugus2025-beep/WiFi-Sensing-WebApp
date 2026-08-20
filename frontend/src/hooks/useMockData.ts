@@ -47,8 +47,8 @@ export function useMockData(intervalMs = 100): CSIFrame | null {
 
       const newFrame: CSIFrame = {
         timestamp: Date.now(),
-        nodes: ['A', 'B', 'C'].map(nodeId => ({
-          nodeId: nodeId as 'A' | 'B' | 'C',
+        nodes: ['A', 'B', 'C', 'D'].map(nodeId => ({
+          nodeId: nodeId as 'A' | 'B' | 'C' | 'D',
           csi_amplitude,
           csi_phase: Array.from({ length: 56 }, () =>
             Math.random() * Math.PI * 2 - Math.PI

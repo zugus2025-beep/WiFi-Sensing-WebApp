@@ -18,6 +18,15 @@ const PoseView3D = dynamic(() => import('@/components/PoseView3D'), {
   ),
 })
 
+const RoomView3D = dynamic(() => import('@/components/RoomView3D'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center bg-slate-900 rounded-lg text-slate-500 text-sm">
+      Loading 3D scene…
+    </div>
+  ),
+})
+
 interface AppSettings {
   useMockData: boolean
   showTriangulation: boolean
@@ -52,7 +61,7 @@ export default function DashboardPage() {
               <span className="text-slate-400 font-normal">RuView</span>
             </h1>
             <span className="hidden sm:inline text-xs bg-slate-800 text-slate-400 border border-slate-700 px-2 py-0.5 rounded-full">
-              ESP32-S3 ×3
+              ESP32-S3 ×4
             </span>
           </div>
 
@@ -77,13 +86,13 @@ export default function DashboardPage() {
       {/* ─── Main grid ────────────────────────────────────── */}
       <main className="flex-1 px-4 py-4 max-w-[1600px] mx-auto w-full flex flex-col gap-4">
 
-        {/* Row 1: 2D Room + 3D Pose */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" style={{ minHeight: '420px' }}>
-          {/* 2D Room View */}
+        {/* Row 1: Coverage map + Room map (3D) + Pose (3D) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4" style={{ minHeight: '420px' }}>
+          {/* 2D Signal Coverage Map */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-                2D Room View
+                WiFi Coverage Map — Under Construction
               </h2>
               <span className="text-xs text-slate-600">5 m × 5 m</span>
             </div>
@@ -92,6 +101,19 @@ export default function DashboardPage() {
                 detection={detection}
                 showTriangulation={settings.showTriangulation}
               />
+            </div>
+          </div>
+
+          {/* 3D Room Map */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                Room Map (3D)
+              </h2>
+              <span className="text-xs text-slate-600">Drag to rotate · Scroll to zoom</span>
+            </div>
+            <div className="flex-1 min-h-[380px]">
+              <RoomView3D detection={detection} />
             </div>
           </div>
 

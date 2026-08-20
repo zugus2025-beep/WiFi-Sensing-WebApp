@@ -1,5 +1,5 @@
 export interface NodeData {
-  nodeId: 'A' | 'B' | 'C'
+  nodeId: 'A' | 'B' | 'C' | 'D'
   csi_amplitude: number[]  // 56 subcarriers
   csi_phase: number[]
   rssi?: number
@@ -34,7 +34,7 @@ export interface CSIFrame {
 }
 
 export interface ESP32Node {
-  nodeId: 'A' | 'B' | 'C'
+  nodeId: 'A' | 'B' | 'C' | 'D'
   position: { x: number; y: number }
   status: 'online' | 'offline'
   rssi?: number

@@ -1,14 +1,63 @@
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
-import type { Detection, ESP32Node } from '@/types/csi'
-import { roomToCanvas } from '@/utils/triangulation'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import type { Detection } from '@/types/csi'
+import { DOOR_WIDTH, NODES, OBSTACLES, MATERIAL_PROPERTIES, ROOM_SIZE, type Obstacle } from '@/utils/obstacles'
+import { buildSignalGrid, renderSignalGridToCanvas } from '@/utils/signalField'
+import { simToCanvas, simScale } from '@/utils/triangulation'
 
-const NODES: ESP32Node[] = [
-  { nodeId: 'A', position: { x: 0.5, y: 0.5 }, status: 'online' },
-  { nodeId: 'B', position: { x: 4.5, y: 0.5 }, status: 'online' },
-  { nodeId: 'C', position: { x: 2.5, y: 4.5 }, status: 'online' },
-]
+function drawObstacleSilhouette(
+  ctx: CanvasRenderingContext2D,
+  o: Obstacle,
+  W: number,
+  scale: number
+) {
+  const { cx, cy } = simToCanvas(o.x, o.y, W)
+  const mat = MATERIAL_PROPERTIES[o.material]
+
+  ctx.save()
+  ctx.translate(cx, cy)
+  if (o.shape === 'rect') {
+    ctx.rotate(o.rot ?? 0)
+    const w = (o.w ?? 0) * scale
+    const h = (o.h ?? 0) * scale
+    ctx.strokeStyle = mat.color
+    ctx.lineWidth = 1.2
+    ctx.setLineDash(o.material === 'metal' ? [] : [3, 3])
+    ctx.strokeRect(-w / 2, -h / 2, w, h)
+  } else {
+    const r = (o.r ?? 0) * scale
+    ctx.strokeStyle = mat.color
+    ctx.lineWidth = 1.2
+    ctx.setLineDash(o.material === 'metal' ? [] : [3, 3])
+    ctx.beginPath()
+    ctx.arc(0, 0, r, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+  ctx.setLineDash([])
+  ctx.restore()
+}
+
+function drawReflectionRipples(
+  ctx: CanvasRenderingContext2D,
+  o: Obstacle,
+  W: number,
+  scale: number,
+  t: number
+) {
+  const { cx, cy } = simToCanvas(o.x, o.y, W)
+  const base = (o.shape === 'circle' ? (o.r ?? 0) : Math.max(o.w ?? 0, o.h ?? 0) / 2) * scale
+  for (let i = 0; i < 3; i++) {
+    const phase = ((t * 0.35 + i / 3) % 1)
+    const radius = base + phase * base * 2.2
+    const alpha = (1 - phase) * 0.35
+    ctx.beginPath()
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+    ctx.strokeStyle = `rgba(169,189,208,${alpha.toFixed(3)})`
+    ctx.lineWidth = 1
+    ctx.stroke()
+  }
+}
 
 interface Props {
   detection: Detection | null
@@ -19,8 +68,18 @@ export default function RoomView2D({ detection, showTriangulation = true }: Prop
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef = useRef<number>(0)
   const posRef = useRef({ x: 2.5, y: 2.5 })
+  const heatmapRef = useRef<HTMLCanvasElement | null>(null)
+  const startRef = useRef<number>(0)
 
-  const draw = useCallback(() => {
+  // Coverage field only depends on fixed node/obstacle geometry — compute once.
+  const signalGrid = useMemo(() => buildSignalGrid(56, NODES, OBSTACLES), [])
+
+  useEffect(() => {
+    heatmapRef.current = renderSignalGridToCanvas(signalGrid)
+    startRef.current = performance.now()
+  }, [signalGrid])
+
+  const draw = useCallback((now: number) => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
@@ -28,8 +87,12 @@ export default function RoomView2D({ detection, showTriangulation = true }: Prop
 
     const W = canvas.width
     const H = canvas.height
-    const pad = W * 0.08
-    const scale = (W - pad * 2) / 5
+    const scale = simScale(W)
+    const simPad = W * 0.06 // must match the padding fraction inside simToCanvas
+    const room0 = simToCanvas(0, 0, W)   // room's top-left corner in canvas px
+    const room1 = simToCanvas(ROOM_SIZE, ROOM_SIZE, W)
+    const wallT = 6
+    const t = (now - startRef.current) / 1000
 
     // Smooth position interpolation
     if (detection?.presence && detection.position) {
@@ -38,45 +101,86 @@ export default function RoomView2D({ detection, showTriangulation = true }: Prop
     }
 
     ctx.clearRect(0, 0, W, H)
-
-    // Background
-    ctx.fillStyle = '#0f172a'
+    ctx.fillStyle = '#0a0e1a'
     ctx.fillRect(0, 0, W, H)
 
-    // Grid
-    ctx.strokeStyle = 'rgba(100,116,139,0.15)'
-    ctx.lineWidth = 0.5
-    for (let i = 0; i <= 5; i++) {
-      const x = pad + i * scale
-      const y = pad + i * scale
-      ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, H - pad); ctx.stroke()
-      ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke()
+    // ── WiFi coverage field — including the hallway just past the walls,
+    // so it reads as signal actually leaking out, not stopping at a line.
+    if (heatmapRef.current) {
+      ctx.save()
+      ctx.imageSmoothingEnabled = true
+      ctx.filter = 'blur(2.5px)'
+      ctx.drawImage(heatmapRef.current, simPad, simPad, W - simPad * 2, H - simPad * 2)
+      ctx.filter = 'none'
+      ctx.restore()
+
+      // Dim the outside-the-room band slightly so the walls still read
+      // as the primary space, without hiding the leaked signal there.
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(0, 0, W, H)
+      ctx.rect(room0.cx, room0.cy, room1.cx - room0.cx, room1.cy - room0.cy)
+      ctx.clip('evenodd')
+      ctx.fillStyle = 'rgba(10,14,26,0.4)'
+      ctx.fillRect(0, 0, W, H)
+      ctx.restore()
     }
 
-    // Room boundary
+    // Reference grid over the room interior
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+    ctx.lineWidth = 0.5
+    for (let i = 0; i <= 5; i++) {
+      const { cx: x } = simToCanvas(i, 0, W)
+      const { cy: y } = simToCanvas(0, i, W)
+      ctx.beginPath(); ctx.moveTo(x, room0.cy); ctx.lineTo(x, room1.cy); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(room0.cx, y); ctx.lineTo(room1.cx, y); ctx.stroke()
+    }
+
+    // Room walls — with a door gap that leaks signal freely
     ctx.strokeStyle = '#475569'
-    ctx.lineWidth = 2
-    ctx.strokeRect(pad, pad, W - pad * 2, H - pad * 2)
+    ctx.lineWidth = wallT
+    ctx.strokeRect(room0.cx, room0.cy, room1.cx - room0.cx, room1.cy - room0.cy)
+    const doorPxW = DOOR_WIDTH * scale
+    const doorCx = (room0.cx + room1.cx) / 2
+    ctx.strokeStyle = '#0a0e1a'
+    ctx.lineWidth = wallT + 2
+    ctx.beginPath()
+    ctx.moveTo(doorCx - doorPxW / 2, room1.cy)
+    ctx.lineTo(doorCx + doorPxW / 2, room1.cy)
+    ctx.stroke()
+    ctx.strokeStyle = 'rgba(148,163,184,0.35)'
+    ctx.lineWidth = 1.2
+    ctx.beginPath()
+    ctx.arc(doorCx - doorPxW / 2, room1.cy, doorPxW, -Math.PI / 2, 0)
+    ctx.stroke()
 
     // Room label
     ctx.fillStyle = '#64748b'
     ctx.font = '11px Inter, sans-serif'
-    ctx.fillText('5 m', W / 2 - 12, H - pad * 0.3)
+    ctx.fillText('5 m', (room0.cx + room1.cx) / 2 - 12, room1.cy + wallT + 12)
     ctx.save()
-    ctx.translate(pad * 0.4, H / 2)
+    ctx.translate(room0.cx - wallT - 8, (room0.cy + room1.cy) / 2)
     ctx.rotate(-Math.PI / 2)
     ctx.fillText('5 m', -12, 0)
     ctx.restore()
 
+    // Obstacles: minimal silhouette + material-driven reflection ripples
+    OBSTACLES.forEach(o => {
+      drawObstacleSilhouette(ctx, o, W, scale)
+      if (MATERIAL_PROPERTIES[o.material].reflective) {
+        drawReflectionRipples(ctx, o, W, scale, t)
+      }
+    })
+
     // Triangulation lines
     if (showTriangulation && detection?.presence) {
-      const { cx: px, cy: py } = roomToCanvas(posRef.current.x, posRef.current.y, W)
+      const { cx: px, cy: py } = simToCanvas(posRef.current.x, posRef.current.y, W)
       NODES.forEach(node => {
-        const { cx: nx, cy: ny } = roomToCanvas(node.position.x, node.position.y, W)
+        const { cx: nx, cy: ny } = simToCanvas(node.position.x, node.position.y, W)
         ctx.beginPath()
         ctx.moveTo(nx, ny)
         ctx.lineTo(px, py)
-        ctx.strokeStyle = 'rgba(29,158,117,0.25)'
+        ctx.strokeStyle = 'rgba(29,158,117,0.3)'
         ctx.lineWidth = 1
         ctx.setLineDash([4, 4])
         ctx.stroke()
@@ -86,7 +190,7 @@ export default function RoomView2D({ detection, showTriangulation = true }: Prop
 
     // ESP32 nodes
     NODES.forEach(node => {
-      const { cx, cy } = roomToCanvas(node.position.x, node.position.y, W)
+      const { cx, cy } = simToCanvas(node.position.x, node.position.y, W)
 
       ctx.beginPath()
       ctx.arc(cx, cy, 10, 0, Math.PI * 2)
@@ -111,9 +215,8 @@ export default function RoomView2D({ detection, showTriangulation = true }: Prop
 
     // Person position
     if (detection?.presence) {
-      const { cx, cy } = roomToCanvas(posRef.current.x, posRef.current.y, W)
+      const { cx, cy } = simToCanvas(posRef.current.x, posRef.current.y, W)
 
-      // Outer glow ring
       const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 30)
       grad.addColorStop(0, 'rgba(24,95,165,0.35)')
       grad.addColorStop(1, 'rgba(24,95,165,0)')
@@ -122,7 +225,6 @@ export default function RoomView2D({ detection, showTriangulation = true }: Prop
       ctx.fillStyle = grad
       ctx.fill()
 
-      // Person dot
       ctx.beginPath()
       ctx.arc(cx, cy, 10, 0, Math.PI * 2)
       ctx.fillStyle = '#185FA5'
@@ -131,7 +233,6 @@ export default function RoomView2D({ detection, showTriangulation = true }: Prop
       ctx.lineWidth = 2
       ctx.stroke()
 
-      // Coordinates label
       ctx.fillStyle = '#93c5fd'
       ctx.font = '10px Inter, monospace'
       ctx.fillText(
